@@ -7,7 +7,7 @@ import {
 import "./App.css";
 
 // Change this URL only if your Flask backend uses a different address or port.
-const API_URL = "https://rejected-reaching-darwin-memory.trycloudflare.com/api/toxicity-check";
+const API_URL = `${import.meta.env.VITE_API_URL || "http://127.0.0.1:5000"}/api/toxicity-check`;
 
 
 function parseCSV(text) {
