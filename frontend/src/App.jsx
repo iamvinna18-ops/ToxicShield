@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import {
-  ShieldCheck, ShieldAlert, Camera, Upload, FileSpreadsheet, Languages,
+  ShieldCheck, ShieldAlert, Upload, FileSpreadsheet, Languages,
   Search, Activity, MessageSquare, LayoutDashboard, Settings, Menu, X,
   ArrowRight, CheckCircle2,
 } from "lucide-react";
@@ -9,9 +9,59 @@ import "./App.css";
 // Change this URL only if your Flask backend uses a different address or port.
 const API_URL = "http://127.0.0.1:5000/api/toxicity-check";
 
+
+function parseCSV(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    const next = text[i + 1];
+
+    if (char === '"' && inQuotes && next === '"') {
+      field += '"';
+      i += 1;
+    } else if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === "," && !inQuotes) {
+      row.push(field.trim());
+      field = "";
+    } else if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") i += 1;
+      row.push(field.trim());
+      if (row.some((value) => value.length > 0)) rows.push(row);
+      row = [];
+      field = "";
+    } else {
+      field += char;
+    }
+  }
+
+  row.push(field.trim());
+  if (row.some((value) => value.length > 0)) rows.push(row);
+  return rows;
+}
+
+function extractCommentsFromCSV(csvText) {
+  const rows = parseCSV(csvText.replace(/^\uFEFF/, ""));
+  if (rows.length === 0) return [];
+
+  const headers = rows[0].map((value) => value.toLowerCase().trim());
+  const headerNames = ["comment", "comments", "text", "message", "content"];
+  const columnIndex = headers.findIndex((value) => headerNames.includes(value));
+
+  const commentRows = columnIndex >= 0 ? rows.slice(1) : rows;
+  const selectedColumn = columnIndex >= 0 ? columnIndex : 0;
+
+  return commentRows
+    .map((row) => (row[selectedColumn] || "").trim())
+    .filter(Boolean);
+}
+
 function App() {
   const [mode, setMode] = useState("Manual");
-  const [reelUrl, setReelUrl] = useState("");
   const [comments, setComments] = useState("");
   const [file, setFile] = useState(null);
   const [message, setMessage] = useState("");
@@ -51,7 +101,7 @@ function App() {
       return;
     }
     setFile(selected);
-    setMessage("CSV selected. CSV analysis is not connected yet; please use Manual Input for the current test.");
+    setMessage("CSV selected. Click Analyze Comments to analyze this file.");
   }
 
   async function analyzeOneComment(comment) {
@@ -76,18 +126,33 @@ function App() {
     setAnalysisError("");
     setAnalysisResults([]);
 
-    if (mode === "Camera") {
-      setMessage("Instagram Reel analysis is not connected yet. Please use Manual Input for the current detection test.");
-      return;
-    }
+    let commentList = [];
+
     if (mode === "csv") {
-      setMessage(file
-        ? "CSV upload is selected, but CSV analysis is not connected yet. Please use Manual Input for the current detection test."
-        : "Please upload a CSV file.");
-      return;
+      if (!file) {
+        setMessage("Please upload a CSV file first.");
+        return;
+      }
+
+      try {
+        const csvText = await file.text();
+        commentList = extractCommentsFromCSV(csvText);
+      } catch {
+        setAnalysisError("Could not read this CSV file. Please try another file.");
+        return;
+      }
+
+      if (commentList.length === 0) {
+        setMessage("No comments found. Add a comment column or put comments in the first column.");
+        return;
+      }
+    } else {
+      commentList = comments
+        .split(/\r?\n/)
+        .map((item) => item.trim())
+        .filter(Boolean);
     }
 
-    const commentList = comments.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
     if (commentList.length === 0) {
       setMessage("Please enter at least one comment.");
       return;
@@ -99,7 +164,7 @@ function App() {
       const results = [];
       for (const comment of commentList) results.push(await analyzeOneComment(comment));
       setAnalysisResults(results);
-      setMessage(`Analysis completed successfully for ${results.length} comment${results.length === 1 ? "" : "s"}.`);
+      setMessage(`${mode === "csv" ? "CSV analysis" : "Comment analysis"} completed successfully for ${results.length} comment${results.length === 1 ? "" : "s"}.`);
     } catch (error) {
       setAnalysisError(error?.message || "Could not connect to the backend. Make sure your Flask server is running.");
     } finally {
@@ -230,28 +295,46 @@ function App() {
             <span className="ai-badge"><Languages size={15} /> Multilingual AI</span>
           </div>
           <div className="mode-tabs">
-            <button className={mode === "Camera" ? "selected" : ""} onClick={() => { setMode("Camera"); setMessage(""); setAnalysisError(""); }}><Camera size={18} /> Instagram Reel</button>
-            <button className={mode === "csv" ? "selected" : ""} onClick={() => { setMode("csv"); setMessage(""); setAnalysisError(""); }}><FileSpreadsheet size={18} /> CSV Upload</button>
-            <button className={mode === "Manual" ? "selected" : ""} onClick={() => { setMode("Manual"); setMessage(""); setAnalysisError(""); }}><MessageSquare size={18} /> Manual Input</button>
+            <button className={mode === "Manual" ? "selected" : ""} onClick={() => { setMode("Manual"); setMessage(""); setAnalysisError(""); }}>
+              <MessageSquare size={18} /> Paste Comments
+            </button>
+            <button className={mode === "csv" ? "selected" : ""} onClick={() => { setMode("csv"); setMessage(""); setAnalysisError(""); }}>
+              <FileSpreadsheet size={18} /> CSV Upload
+            </button>
           </div>
 
           <div className="input-panel">
-            {mode === "Camera" && <div>
-              <label htmlFor="reel-url">Instagram Reel URL</label>
-              <div className="url-input"><Camera size={20} /><input id="reel-url" type="url" placeholder="https://www.instagram.com/reel/..." value={reelUrl} onChange={(event) => setReelUrl(event.target.value)} /></div>
-              <p className="input-help">Instagram Reel comment retrieval is not connected yet. Use Manual Input for the current detection test.</p>
-            </div>}
-
             {mode === "csv" && <div>
               <label htmlFor="csv-file">Upload comment dataset</label>
-              <label className="upload-area"><Upload size={34} /><strong>{file ? file.name : "Drop your CSV file here"}</strong><span>or click to browse your computer</span><small>CSV files only</small><input id="csv-file" type="file" accept=".csv,text/csv" onChange={handleFile} /></label>
-              <p className="input-help">CSV analysis is not connected yet. Please use Manual Input for the current detection test.</p>
+              <label className="upload-area">
+                <Upload size={34} />
+                <strong>{file ? file.name : "Choose a CSV file"}</strong>
+                <span>Click to browse your computer</span>
+                <small>CSV files only · Supported columns: comment, comments, text, message or content</small>
+                <input
+                  id="csv-file"
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={handleFile}
+                />
+              </label>
+              <p className="input-help">
+                ToxicShield reads the recognized comment column, or the first column if no matching header is found.
+              </p>
             </div>}
 
             {mode === "Manual" && <div>
               <label htmlFor="manual-comments">Paste comments</label>
-              <textarea id="manual-comments" rows="6" placeholder="Paste comments here, one comment per line..." value={comments} onChange={(event) => setComments(event.target.value)} />
-              <p className="input-help">Enter one comment per line. Each line will be sent to the Flask backend separately.</p>
+              <textarea
+                id="manual-comments"
+                rows="6"
+                placeholder="Paste comments here, one comment per line..."
+                value={comments}
+                onChange={(event) => setComments(event.target.value)}
+              />
+              <p className="input-help">
+                Paste comments copied from Instagram, YouTube or other social platforms. Enter one comment per line.
+              </p>
             </div>}
 
             {message && <div className="message">{message}</div>}

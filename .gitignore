@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Model files and cache
+.cache/
+huggingface/
+*.safetensors
+*.pt
+*.pth
+
+# Frontend
+node_modules/
+dist/
+
+# Local datasets and logs
+*.csv
+*.xlsx
+*.log
